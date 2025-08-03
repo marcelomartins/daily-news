@@ -1,5 +1,5 @@
 # Use Node.js LTS como base
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Instalar pnpm
 RUN npm install -g pnpm
@@ -20,7 +20,7 @@ COPY . .
 RUN pnpm run build
 
 # Estágio de produção
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 # Instalar pnpm
 RUN npm install -g pnpm
