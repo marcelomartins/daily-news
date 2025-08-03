@@ -183,12 +183,6 @@ O projeto possui GitHub Actions configurado para automaticamente:
 | `push v1.2.3` | `v1.2.3`, `1.2`, `latest` |
 | `pull request` | `pr-123` (não faz push) |
 
-#### Configuração do GHCR
-
-1. **Permissões**: GitHub Actions tem permissões automáticas para GHCR
-2. **Visibilidade**: Por padrão pacotes são privados. Para tornar público:
-   - Vá para "Packages" no repositório → `daily-news`
-   - "Package settings" → "Change visibility" → "Public"
 
 #### Imagens Disponíveis
 
@@ -227,38 +221,6 @@ services:
 ```
 
 
-## 🔄 Sistema de Atualização
-```
-
-## � Deploy
-
-### Deploy Automatizado
-
-O projeto possui GitHub Actions configurado para automaticamente:
-
-- **Build**: Construir a imagem Docker multi-arquitetura (AMD64/ARM64)
-- **Push**: Publicar no GitHub Container Registry (GHCR)
-- **Tags**: Versionamento automático baseado em branches e tags
-
-#### Imagens Disponíveis
-
-- `ghcr.io/marcelomartins/daily-news:latest` - Última versão da branch principal
-- `ghcr.io/marcelomartins/daily-news:v1.0.0` - Versões específicas (tags)
-- `ghcr.io/marcelomartins/daily-news:main` - Branch principal
-
-> 📖 **Documentação Completa**: Veja [DEPLOY.md](docs/DEPLOY.md) para instruções detalhadas de deploy
-
-### Manual
-
-```bash
-# Build local
-docker build -t daily-news .
-
-# Push para registry personalizado
-docker tag daily-news your-registry/daily-news:latest
-docker push your-registry/daily-news:latest
-```
-
 
 ## 🤝 Contribuição
 
@@ -290,24 +252,6 @@ pnpm build
 
 Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
-## 🆘 Suporte
-
-- **Issues**: [GitHub Issues](https://github.com/marcelomartins/daily-news/issues)
-- **Discussões**: [GitHub Discussions](https://github.com/marcelomartins/daily-news/discussions)
-- **Email**: seu-email@exemplo.com
-
-## 🔮 Roadmap
-
-- [ ] Busca de notícias
-- [ ] Favoritos/Bookmarks
-- [ ] Filtros por data
-- [ ] Notificações push
-- [ ] Modo offline
-- [ ] Exportação de dados
-- [ ] API REST
-- [ ] Autenticação de usuários
-- [ ] Compartilhamento social
-- [ ] Análises e métricas
 
 ## 📊 Status do Projeto
 
