@@ -1,0 +1,12 @@
+name: daily-news
+services:
+    daily-news:
+        container_name: daily-news
+        ports:
+            - 3000:3000
+        volumes:
+            - /app/data:/app/data
+        restart: unless-stopped
+        environment:
+            - NODE_ENV=production
+        image: ghcr.io/marcelomartins/daily-news:latest
