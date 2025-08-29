@@ -109,7 +109,7 @@
 		line-height: 1.4;
 		color: #1a1a1a;
 		margin: 0px 0px;
-		font-size: 21px;
+		font-size: 18px;
 	}
 
 	.article-headline a {
@@ -151,13 +151,14 @@
 	}
 
 	.compact-article {
-		padding: 20px 0;
+		padding: 15px 0px;
+		margin: 0px 25px;
 		border-bottom: 1px solid #b8b8b8;
 		height: auto;
 	}
 
 	.compact-article .article-headline {
-		font-size: 21px;
+		font-size: 19px;
 		margin-bottom: 8px;
 	}
 

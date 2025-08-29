@@ -65,26 +65,6 @@
 		<!-- Área principal - lista simples sem limites -->
 		<main class="main-content">
 			<div class="articles-list">
-				<!-- Layout para desktop: área principal + sidebar -->
-				<div class="desktop-layout">
-					<!-- Seção principal - 2/3 da largura -->
-					<div class="main-section">
-						<!-- Primeiras 2 notícias - layout completo -->
-						{#each data.news.items.slice(0, 2) as item}
-							<Article {item} user={data.user} className="full-article" />
-						{/each}
-					</div>
-
-					<!-- Sidebar - 1/3 da largura (apenas desktop) -->
-					{#if data.news.items.length > 2}
-						<aside class="sidebar-section">
-							{#each data.news.items.slice(2, 6) as item}
-								<Article {item} user={data.user} showExcerpt={false} className="sidebar-article" />
-							{/each}
-						</aside>
-					{/if}
-				</div>
-
 				<!-- Layout mobile: todas as notícias em sequência simples -->
 				<div class="mobile-layout">
 					{#each data.news.items as item}
@@ -103,34 +83,19 @@
 					</div>
 				</div>
 
-				<!-- Notícias restantes em grid (abaixo das principais no desktop) -->
-				{#if data.news.items.length > 6}
-					<div class="remaining-articles">
-						<div class="column">
-							{#each data.news.items.slice(6).filter((_: any, index: number) => index % 2 === 0) as item}
-								<Article {item} user={data.user} className="compact-article" />
-							{/each}
-						</div>
-						<div class="column">
-							{#each data.news.items.slice(6).filter((_: any, index: number) => index % 2 === 1) as item}
-								<Article {item} user={data.user} className="compact-article" />
-							{/each}
-						</div>
+				<!-- Layout desktop: 2 colunas 50/50 com 12 notícias (6 em cada) -->
+				<div class="desktop-columns">
+					<div class="column">
+						{#each data.news.items.slice(0, 6) as item}
+							<Article {item} user={data.user} className="compact-article" />
+						{/each}
 					</div>
-				{:else if data.news.items.length > 2}
-					<div class="remaining-articles">
-						<div class="column">
-							{#each data.news.items.slice(2).filter((_: any, index: number) => index % 2 === 0) as item}
-								<Article {item} user={data.user} className="compact-article" />
-							{/each}
-						</div>
-						<div class="column">
-							{#each data.news.items.slice(2).filter((_: any, index: number) => index % 2 === 1) as item}
-								<Article {item} user={data.user} className="compact-article" />
-							{/each}
-						</div>
+					<div class="column">
+						{#each data.news.items.slice(6, 12) as item}
+							<Article {item} user={data.user} className="compact-article" />
+						{/each}
 					</div>
-				{/if}
+				</div>
 			</div>
 		</main>
 	</div>
@@ -221,6 +186,7 @@
 		background: #fff;
 		border-bottom: 1px solid #e0e0e0;
 		padding: 16px 20px;
+		margin-bottom: 10px;
 		overflow-x: auto;
 		scrollbar-width: none; /* Firefox */
 		-ms-overflow-style: none; /* IE/Edge */
@@ -293,7 +259,7 @@
 	}
 
 	/* Layout desktop visível por padrão */
-	.desktop-layout {
+	.desktop-columns {
 		display: block;
 	}
 
@@ -320,30 +286,10 @@
 			max-width: 1200px;
 		}
 
-		/* Layout principal desktop: 2/3 + 1/3 */
-		.desktop-layout {
+		/* Layout desktop: 2 colunas 50/50 */
+		.desktop-columns {
 			display: flex;
 			gap: 20px;
-			margin-bottom: 0px;
-		}
-
-		/* Seção principal - 2/3 da largura */
-		.main-section {
-			flex: 2;
-		}
-
-		/* Sidebar - 1/3 da largura */
-		.sidebar-section {
-			flex: 1;
-			padding: 0;
-		}
-
-		/* Artigos restantes em 2 colunas independentes */
-		.remaining-articles {
-			display: flex;
-			gap: 40px;
-			border-top: 1px solid #b8b8b8;
-			margin-top: 20px;
 		}
 
 		.column {
@@ -361,12 +307,7 @@
 	/* Mobile e Tablet - layout original */
 	@media (max-width: 1023px) {
 		/* Esconder layout desktop no mobile/tablet */
-		.desktop-layout {
-			display: none;
-		}
-
-		/* Esconder remaining articles no mobile/tablet */
-		.remaining-articles {
+		.desktop-columns {
 			display: none;
 		}
 
@@ -555,10 +496,6 @@
 	.dark-mode .category-pill.current {
 		border: 3px solid #fff;
 		font-weight: 700;
-	}
-
-	.dark-mode .remaining-articles {
-		border-top-color: #333;
 	}
 
 	.dark-mode .mobile-nav-footer {
