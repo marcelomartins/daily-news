@@ -1,0 +1,54 @@
+# Dependências de desenvolvimento
+node_modules
+.pnpm-store
+
+# Arquivos de build locais
+build
+.svelte-kit
+
+# Arquivos de configuração local
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Cache do editor
+.vscode
+.idea
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Git
+.git
+.gitignore
+
+# CI/CD
+.gitlab-ci.yml
+
+# Documentação
+README.md
+*.md
+
+# Plataformas de deploy
+.vercel
+.netlify
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de teste
+*.test.*
+__tests__
+coverage

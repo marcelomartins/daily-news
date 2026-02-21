@@ -1,0 +1,19 @@
+name: daily-news
+services:
+    daily-news:
+        container_name: daily-news
+        ports:
+            - 3000:3000
+        volumes:
+            - /daily-news:/app/data
+        restart: unless-stopped
+        environment:
+            NODE_ENV: "production"
+            OPENROUTER_API_KEY: "sk-or-xxxxxxxxxxx"
+            OPENROUTER_MODEL: "openai/gpt-oss-20b"
+            OPENROUTER_MAX_RETRIES: 2
+            OPENROUTER_RETRY_DELAY_MS: 1500
+            HEADLINES_INTERVAL_MINUTES: 240
+            RSS_UPDATE_INTERVAL: 300000
+            LOG_LEVEL: "info"
+        image: ghcr.io/marcelomartins/daily-news:latest
