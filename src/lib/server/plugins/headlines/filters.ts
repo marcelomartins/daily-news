@@ -1,4 +1,4 @@
-import type { HeadlineItem } from '$lib/server/services/openrouter/types';
+import type { HeadlineItem } from '$lib/server/services/llm/types';
 import { resolveNewsLink } from '$lib/utils/news-links';
 
 const SECTION_TERMS = new Set([

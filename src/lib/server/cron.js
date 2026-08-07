@@ -222,10 +222,9 @@ function cleanTitle(title) {
     // Remove CDATA
     let cleaned = title.replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1');
 
-    // Remove tags HTML
-    cleaned = cleaned.replace(/<[^>]*>/g, '');
-
-    // Decodifica entidades HTML básicas
+    // Decodifica entidades HTML ANTES de remover tags: feeds costumam escapar
+    // markup como &lt;b&gt;, que so vira tag depois de decodificado. Na ordem
+    // inversa esse markup sobrevivia e aparecia literalmente no titulo.
     cleaned = cleaned
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
@@ -266,6 +265,9 @@ function cleanTitle(title) {
             }
         });
 
+    // Remove tags HTML
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
+
     return cleaned.trim();
 }
 
@@ -281,11 +283,8 @@ function cleanDescription(description) {
         return '';
     }
 
-    // Remove tags HTML
-    let cleaned = description.replace(/<[^>]*>/g, '');
-
-    // Decodifica entidades HTML mais completa
-    cleaned = cleaned
+    // Decodifica entidades HTML antes de remover tags (ver cleanTitle)
+    let cleaned = description
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
@@ -353,6 +352,9 @@ function cleanDescription(description) {
                 return match;
             }
         });
+
+    // Remove tags HTML
+    cleaned = cleaned.replace(/<[^>]*>/g, '');
 
     // Remove quebras de linha excessivas e espaços extras
     cleaned = cleaned

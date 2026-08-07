@@ -1,5 +1,5 @@
 /**
- * OpenRouter API Types
+ * OpenAI-compatible chat completions API types
  */
 
 export interface ChatMessage {

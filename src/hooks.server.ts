@@ -40,7 +40,76 @@ function getJobsLockStaleMs() {
     return parsed;
 }
 
-function acquireBackgroundJobsLock() {
+type JobsLock = { pid?: number; startedAt?: string };
+
+function readJobsLock(): JobsLock | null {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(JOBS_LOCK_PATH, 'utf8'));
+        return parsed && typeof parsed === 'object' ? (parsed as JobsLock) : null;
+    } catch {
+        return null;
+    }
+}
+
+function getJobsLockAgeMs(): number | null {
+    try {
+        return Date.now() - fs.statSync(JOBS_LOCK_PATH).mtimeMs;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * A PID alone cannot prove the lock belongs to a live *other* process.
+ *
+ * With `CMD ["node", "build"]` the app is PID 1 inside the container, so an
+ * ungraceful shutdown (OOM, `docker kill`, host crash) leaves a lock recording
+ * pid 1 on the mounted volume. The next incarnation is PID 1 as well, and would
+ * otherwise probe itself, conclude another process owns the lock and never
+ * start the background jobs again.
+ */
+function isJobsLockHeldByLiveProcess(lock: JobsLock): boolean {
+    const pid = lock.pid;
+
+    if (!pid || !Number.isInteger(pid) || pid <= 0) {
+        return false;
+    }
+
+    if (pid === process.pid) {
+        return false;
+    }
+
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : '';
+        // EPERM means the process exists but belongs to another user.
+        return code === 'EPERM';
+    }
+}
+
+function stealJobsLock(reason: string, attempt: number): boolean {
+    console.warn(`[${timestamp()}] [Startup] Removendo lock de jobs orfao (${reason})`);
+
+    try {
+        fs.unlinkSync(JOBS_LOCK_PATH);
+    } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : '';
+        if (code !== 'ENOENT') {
+            console.warn(`[${timestamp()}] [Startup] Falha ao remover lock orfao:`, error);
+            return false;
+        }
+    }
+
+    return acquireBackgroundJobsLock(attempt + 1);
+}
+
+function acquireBackgroundJobsLock(attempt = 0): boolean {
+    if (jobsState.__dailyNewsBackgroundJobsLockOwned) {
+        return true;
+    }
+
     try {
         fs.mkdirSync(path.dirname(JOBS_LOCK_PATH), { recursive: true });
     } catch (error) {
@@ -61,35 +130,29 @@ function acquireBackgroundJobsLock() {
             return false;
         }
 
-        try {
-            const rawLock = fs.readFileSync(JOBS_LOCK_PATH, 'utf8');
-            const parsedLock = JSON.parse(rawLock) as { pid?: number };
-
-            if (parsedLock.pid && Number.isInteger(parsedLock.pid) && parsedLock.pid > 0) {
-                try {
-                    process.kill(parsedLock.pid, 0);
-                    return false;
-                } catch (pidError) {
-                    const pidErrorCode = pidError && typeof pidError === 'object' && 'code' in pidError ? pidError.code : '';
-                    if (pidErrorCode === 'ESRCH') {
-                        fs.unlinkSync(JOBS_LOCK_PATH);
-                        return acquireBackgroundJobsLock();
-                    }
-                }
-            }
-
-            const staleMs = getJobsLockStaleMs();
-            const stats = fs.statSync(JOBS_LOCK_PATH);
-            const lockAgeMs = Date.now() - stats.mtimeMs;
-            if (lockAgeMs > staleMs) {
-                fs.unlinkSync(JOBS_LOCK_PATH);
-                return acquireBackgroundJobsLock();
-            }
-        } catch (lockError) {
-            console.warn(`[${timestamp()}] [Startup] Falha ao validar lock existente:`, lockError);
+        // Bounded so a racing process cannot drive this into deep recursion.
+        if (attempt >= 2) {
+            console.warn(`[${timestamp()}] [Startup] Desistindo do lock de jobs apos ${attempt} tentativas`);
+            return false;
         }
 
-        return false;
+        const lock = readJobsLock();
+        if (!lock) {
+            return stealJobsLock('conteudo ilegivel', attempt);
+        }
+
+        // Age is checked before the PID so an expired lock is always reclaimable.
+        const lockAgeMs = getJobsLockAgeMs();
+        const staleMs = getJobsLockStaleMs();
+        if (lockAgeMs !== null && lockAgeMs > staleMs) {
+            return stealJobsLock(`expirado ha ${Math.floor((lockAgeMs - staleMs) / 1000)}s`, attempt);
+        }
+
+        if (isJobsLockHeldByLiveProcess(lock)) {
+            return false;
+        }
+
+        return stealJobsLock(`pid ${lock.pid ?? '?'} nao esta ativo`, attempt);
     }
 }
 

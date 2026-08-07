@@ -2,7 +2,10 @@
 FROM node:24-bookworm-slim AS builder
 
 # Instalar pnpm
-RUN npm install -g pnpm
+# Versão fixa: sem o pin, o build pega o pnpm mais recente, que deixou de ler o
+# campo "pnpm" do package.json e descartava silenciosamente overrides e
+# onlyBuiltDependencies — tornando a imagem diferente do ambiente local.
+RUN npm install -g pnpm@10.6.5
 
 # Definir diretório de trabalho
 WORKDIR /app
@@ -23,7 +26,10 @@ RUN pnpm run build
 FROM node:24-bookworm-slim AS runtime
 
 # Instalar pnpm
-RUN npm install -g pnpm
+# Versão fixa: sem o pin, o build pega o pnpm mais recente, que deixou de ler o
+# campo "pnpm" do package.json e descartava silenciosamente overrides e
+# onlyBuiltDependencies — tornando a imagem diferente do ambiente local.
+RUN npm install -g pnpm@10.6.5
 
 # Criar usuário não-root
 RUN groupadd -g 1001 nodejs
@@ -94,8 +100,16 @@ COPY --from=builder --chown=sveltekit:nodejs /app/build build/
 # Criar diretório data vazio (será mapeado como volume)
 RUN mkdir -p data && chown sveltekit:nodejs data
 
-# Não mudar para usuário não-root ainda para manter permissões de escrita
-# USER sveltekit
+# O container inicia como root apenas para ajustar as permissões do volume; o
+# entrypoint larga privilégios antes de executar o node. O Puppeteer renderiza
+# páginas remotas não confiáveis com --no-sandbox, então nem ele nem o node
+# devem rodar como root.
+#
+# Ajustável por PUID/PGID. Sem eles, o entrypoint adota o dono atual de
+# /app/data, de forma que volumes existentes continuam funcionando sem
+# nenhuma intervenção.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expor porta
 EXPOSE 3000
@@ -106,4 +120,5 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 
 # Comando para iniciar a aplicação
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "build"]

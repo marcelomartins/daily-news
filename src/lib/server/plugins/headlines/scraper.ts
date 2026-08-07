@@ -21,6 +21,64 @@ function errorLog(message: string): void {
     console.error(`[${timestamp()}] [PLUGIN-headline][scraper] ${message}`);
 }
 
+const PRIVATE_IPV4_PATTERNS = [
+    /^0\./,                                  // "this network"
+    /^10\./,                                 // RFC1918
+    /^127\./,                                // loopback
+    /^169\.254\./,                           // link-local / cloud metadata
+    /^172\.(1[6-9]|2\d|3[01])\./,            // RFC1918
+    /^192\.168\./,                           // RFC1918
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./ // CGNAT
+];
+
+const PRIVATE_HOSTNAME_SUFFIXES = ['.local', '.internal', '.localhost', '.home.arpa'];
+
+function allowsPrivateHosts(): boolean {
+    const rawValue = (process.env.SCRAPER_ALLOW_PRIVATE_HOSTS || '').toLowerCase();
+    return rawValue === 'true' || rawValue === '1' || rawValue === 'on';
+}
+
+/**
+ * Feed pages and LLM-extracted links are untrusted input. Without this, a
+ * hostile page can point the scraper at the loopback interface, the LAN or the
+ * cloud metadata endpoint and have the response published as a news article.
+ */
+function isBlockedScrapeTarget(rawUrl: string): { blocked: boolean; reason: string } {
+    let parsed: URL;
+
+    try {
+        parsed = new URL(rawUrl);
+    } catch {
+        return { blocked: true, reason: 'malformed URL' };
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { blocked: true, reason: `unsupported protocol "${parsed.protocol}"` };
+    }
+
+    if (allowsPrivateHosts()) {
+        return { blocked: false, reason: '' };
+    }
+
+    // URL keeps IPv6 literals wrapped in brackets
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+
+    if (hostname === 'localhost' || PRIVATE_HOSTNAME_SUFFIXES.some(suffix => hostname.endsWith(suffix))) {
+        return { blocked: true, reason: `private hostname "${hostname}"` };
+    }
+
+    if (PRIVATE_IPV4_PATTERNS.some(pattern => pattern.test(hostname))) {
+        return { blocked: true, reason: `private IPv4 address "${hostname}"` };
+    }
+
+    // IPv6 loopback (::1), unique local (fc00::/7) and link-local (fe80::/10)
+    if (hostname === '::1' || /^f[cd][0-9a-f]{2}:/.test(hostname) || /^fe[89ab][0-9a-f]:/.test(hostname)) {
+        return { blocked: true, reason: `private IPv6 address "${hostname}"` };
+    }
+
+    return { blocked: false, reason: '' };
+}
+
 // Lazy import to avoid loading Puppeteer if not needed
 let puppeteer: typeof import('puppeteer') | null = null;
 let TurndownService: typeof import('turndown') | null = null;
@@ -85,6 +143,12 @@ export function getHomepageFromFeedUrl(feedUrl: string): string {
 export async function scrapePage(url: string): Promise<string> {
     if (!url || !url.trim()) {
         warn('Skipping scrape: empty URL');
+        return '';
+    }
+
+    const targetCheck = isBlockedScrapeTarget(url.trim());
+    if (targetCheck.blocked) {
+        warn(`Blocked scrape target (${targetCheck.reason}): ${url}`);
         return '';
     }
 

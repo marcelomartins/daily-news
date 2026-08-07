@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { HeadlineItem } from '$lib/server/services/openrouter/types';
+import type { HeadlineItem } from '$lib/server/services/llm/types';
 import { normalizeNewsLinkForCompare, resolveNewsLink } from '$lib/utils/news-links';
 import { isValidHeadlineCandidate } from './filters';
 import { writeJsonAtomic } from '$lib/server/utils/atomic-file.js';
@@ -575,11 +575,11 @@ export async function enrichHeadlineArticles(feedBasename: string, category: str
             // Import scraper and LLM client dynamically to avoid circular deps
             const { scrapePage, closeBrowser } = await import('./scraper');
             closeBrowserFn = closeBrowser;
-            const { getOpenRouterClient } = await import('$lib/server/services/openrouter');
-            const client = getOpenRouterClient();
+            const { getLlmClient } = await import('$lib/server/services/llm');
+            const client = getLlmClient();
 
             if (!client.isConfigured()) {
-                log('OpenRouter not configured, skipping full article enrichment');
+                log('LLM provider not configured, skipping full article enrichment');
                 return 0;
             }
 

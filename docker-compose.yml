@@ -9,11 +9,20 @@ services:
         restart: unless-stopped
         environment:
             NODE_ENV: "production"
-            OPENROUTER_API_KEY: "sk-or-xxxxxxxxxxx"
-            OPENROUTER_MODEL: "openai/gpt-oss-20b"
-            OPENROUTER_MAX_RETRIES: 2
-            OPENROUTER_RETRY_DELAY_MS: 1500
+            # Usuário do container. Sem isso, o entrypoint adota o dono atual de
+            # /app/data (volumes existentes continuam funcionando sem ajuste).
+            # Defina com o seu `id -u` / `id -g` para editar os .feeds na mão.
+            # PUID: 1000
+            # PGID: 1000
+            # Qualquer provedor compatível com a API da OpenAI.
+            # Omitir AI_BASE_URL mantém o padrão (OpenRouter).
+            # Cloudflare Workers AI:
+            #   AI_BASE_URL: "https://api.cloudflare.com/client/v4/accounts/SEU_ACCOUNT_ID/ai/v1"
+            #   AI_MODEL: "@cf/openai/gpt-oss-20b"
+            AI_BASE_URL: "https://openrouter.ai/api/v1"
+            AI_API_KEY: "sk-or-xxxxxxxxxxx"
+            AI_MODEL: "openai/gpt-oss-20b"
+            AI_MAX_RETRIES: 2
+            AI_RETRY_DELAY_MS: 1500
             HEADLINES_INTERVAL_MINUTES: 240
-            RSS_UPDATE_INTERVAL: 300000
-            LOG_LEVEL: "info"
         image: ghcr.io/marcelomartins/daily-news:latest

@@ -9,7 +9,7 @@ import path from 'path';
 import { scrapePage, getHomepageFromFeedUrl, closeBrowser } from './scraper';
 import { extractHeadlines } from './extractor';
 import { mergeHeadlines, enrichHeadlineArticles, finalizeHeadlines } from './processor';
-import { getOpenRouterClient } from '$lib/server/services/openrouter';
+import { getLlmClient } from '$lib/server/services/llm';
 import { sanitizeCategoryIdentifier, sanitizeUserIdentifier } from '$lib/server/utils/identifiers.js';
 import { parseFeedSourceLine } from '$lib/server/utils/feed-flags.js';
 
@@ -163,13 +163,13 @@ async function runHeadlineExtraction(): Promise<void> {
     log('═══════════════════════════════════════════════════════════');
 
     try {
-        const client = getOpenRouterClient();
+        const client = getLlmClient();
         if (!client.isConfigured()) {
-            warn('OpenRouter nao configurado');
-            warn('Configure OPENROUTER_API_KEY no arquivo .env');
+            warn('Provedor de IA nao configurado');
+            warn('Configure AI_API_KEY no arquivo .env');
             return;
         }
-        log('OpenRouter configurado');
+        log(`Provedor de IA configurado (${client.getEndpoint()})`);
 
         const feeds = getHeadlineFeeds();
 
@@ -315,7 +315,7 @@ export function init(): void {
     log('Configuracao:');
     log(`  - Intervalo: ${intervalMinutes} minuto(s)`);
     log(`  - Delay inicial: ${Math.floor(startupDelayMs / 1000)} segundo(s)`);
-    log(`  - Modelo: ${process.env.OPENROUTER_MODEL || 'qwen/qwen3-next-80b-a3b-instruct:free'}`);
+    log(`  - Modelo: ${getLlmClient().getModel()}`);
 
     // Run after initial delay (give cron.js time to run first)
     log(`Primeira execucao em ${Math.floor(startupDelayMs / 1000)} segundo(s)...`);

@@ -1,0 +1,5 @@
+# Shell scripts precisam de LF mesmo quando editados no Windows: um CR no
+# shebang faz o kernel do container falhar com "exec format error".
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf

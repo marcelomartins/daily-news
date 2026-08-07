@@ -47,13 +47,13 @@ A blazing-fast news reader built with SvelteKit 2 + Svelte 5. It organizes multi
 ## 🛠️ Tech Stack
 
 - **Frontend**: SvelteKit 2.x, Svelte 5.x, TypeScript, Vite
-- **Backend & AI**: Node.js, OpenRouter LLM Integrations, Puppeteer (Web Scraping), XML parsing, Cron jobs
+- **Backend & AI**: Node.js, any OpenAI-compatible LLM provider (OpenRouter, Cloudflare Workers AI, ...), Puppeteer (Web Scraping), XML parsing, Cron jobs
 - **Deployment**: Docker, Node.js adapter
 - **Feeds**: Full RSS 2.0 and Atom 1.0 support
 
 ## 📋 Prerequisites
 
-- Node.js 22+ (recommended) or Docker
+- Node.js 24+ (matches the Docker image and CI) or Docker
 - pnpm (recommended) or npm
 
 ## 🔧 Installation
@@ -139,24 +139,34 @@ If no flags are provided, the URL will be treated as a standard RSS feed.
 
 ### AI Headlines Plugin Configuration (LLM)
 
+The AI engine is **provider-agnostic**: it speaks the standard OpenAI chat completions protocol, so it works with OpenRouter, Cloudflare Workers AI, Cloudflare AI Gateway, OpenAI, a local Ollama — anything that exposes `/chat/completions`. You pick the provider purely through `AI_BASE_URL`.
+
 To avoid free-tier limitations and leverage your custom limits safely, please configure your environment variables:
 
 ```bash
-# mandatory for using OpenRouter
-OPENROUTER_API_KEY=sk-or-v1-...
+# mandatory: your provider's API key
+AI_API_KEY=...
 
-# optional: a dedicated key purely for the headlines plugin
-HEADLINES_OPENROUTER_API_KEY=sk-or-v1-...
+# optional: the provider endpoint (defaults to OpenRouter when omitted)
+# accepts either the API base or an already complete /chat/completions URL
+AI_BASE_URL=https://openrouter.ai/api/v1
 
 # highly recommended: stable non-free models
-OPENROUTER_MODEL=openai/gpt-oss-20b
+AI_MODEL=openai/gpt-oss-20b
+
+# optional: a dedicated key purely for the headlines plugin
+HEADLINES_AI_API_KEY=...
 
 # optional: fallback cascade if the primary model fails
-OPENROUTER_FALLBACK_MODELS=qwen/qwen3-next-80b-a3b-instruct:free,z-ai/glm-4.5-air:free
+AI_FALLBACK_MODELS=qwen/qwen3-next-80b-a3b-instruct:free,z-ai/glm-4.5-air:free
 
 # optional: auto-retry mechanics for transient errors (429/5xx)
-OPENROUTER_MAX_RETRIES=2
-OPENROUTER_RETRY_DELAY_MS=1500
+AI_MAX_RETRIES=2
+AI_RETRY_DELAY_MS=1500
+AI_TIMEOUT_MS=30000
+
+# optional: extra provider-specific headers, as a JSON object
+AI_EXTRA_HEADERS={"HTTP-Referer":"https://daily-news.local","X-Title":"Daily News Aggregator"}
 
 # plugin execution interval (e.g. 120 minutes)
 HEADLINES_INTERVAL_MINUTES=120
@@ -165,7 +175,51 @@ HEADLINES_INTERVAL_MINUTES=120
 TRANSLATION_TARGET_LANG=en-US
 ```
 
-*Note: If you receive a "add your own key to accumulate your rate limits" error, ensure you have added your provider key directly inside `https://openrouter.ai/settings/integrations` (BYOK configuration via the OpenRouter dashboard).*
+#### Provider Examples
+
+**OpenRouter** (default — you may omit `AI_BASE_URL` entirely)
+
+```bash
+AI_BASE_URL=https://openrouter.ai/api/v1
+AI_API_KEY=sk-or-v1-...
+AI_MODEL=openai/gpt-oss-20b
+```
+
+**Cloudflare Workers AI**
+
+```bash
+AI_BASE_URL=https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1
+AI_API_KEY=YOUR_CLOUDFLARE_API_TOKEN
+AI_MODEL=@cf/openai/gpt-oss-20b
+```
+
+**Cloudflare AI Gateway** (adds caching, rate limiting, logging and provider switching)
+
+```bash
+AI_BASE_URL=https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY/compat
+AI_API_KEY=YOUR_CLOUDFLARE_API_TOKEN
+AI_MODEL=workers-ai/@cf/openai/gpt-oss-20b
+```
+
+> ⚠️ **Model capability matters.** The plugin asks the model to return strict JSON. Small models (7B/8B class) frequently break that contract and produce zero headlines. Stick to a `gpt-oss`-class model or better, and make sure the model's context window comfortably fits the ~15k characters of page content the extractor sends.
+
+*Note (OpenRouter): if you receive a "add your own key to accumulate your rate limits" error, ensure you have added your provider key directly inside `https://openrouter.ai/settings/integrations` (BYOK configuration via the OpenRouter dashboard).*
+
+#### Migrating from `OPENROUTER_*`
+
+The previous `OPENROUTER_*` variables are **deprecated but still honored** as a fallback, so existing deployments keep working after an update with no `.env` changes. The mapping is:
+
+| Deprecated | Current |
+|---|---|
+| `OPENROUTER_API_KEY` | `AI_API_KEY` |
+| `HEADLINES_OPENROUTER_API_KEY` | `HEADLINES_AI_API_KEY` |
+| `OPENROUTER_MODEL` | `AI_MODEL` |
+| `OPENROUTER_FALLBACK_MODELS` | `AI_FALLBACK_MODELS` |
+| `OPENROUTER_MAX_RETRIES` | `AI_MAX_RETRIES` |
+| `OPENROUTER_RETRY_DELAY_MS` | `AI_RETRY_DELAY_MS` |
+| `OPENROUTER_TIMEOUT_MS` | `AI_TIMEOUT_MS` |
+
+When both are set, the `AI_*` variable wins.
 
 ### Directory Structure
 
@@ -273,6 +327,30 @@ services:
 ```
 
 > Pro-tip: Base your infra on the bundled `docker-compose.yml` and slightly alter port bindings or env vars for proper fit to your specific server topology.
+
+#### Container user (PUID / PGID)
+
+The embedded Chrome renders untrusted remote pages with the sandbox disabled, so the application must not run as root. The container starts as root only long enough to fix the volume permissions, then drops privileges before executing Node.
+
+**Upgrading requires no action** — no `chown`, no compose changes. When `PUID` is not set, the entrypoint adopts whatever user already owns `/app/data`, so an existing volume keeps working and keeps its ownership.
+
+Override it when you want the data files to belong to a specific host user:
+
+```yaml
+environment:
+    PUID: 1000
+    PGID: 1000
+```
+
+Handy when you edit `.feeds` files by hand: set these to your own `id -u` / `id -g` and the files stay yours.
+
+Resolution order:
+
+1. `PUID` / `PGID` from the environment
+2. the current owner of `/app/data` (when it is not root)
+3. the image's built-in user, `1001:1001`
+
+Setting `user:` in compose also works — the entrypoint detects it is already unprivileged and skips the permission fixup, but then the volume must already be writable by that user.
 
 ## 🤝 Contributing
 

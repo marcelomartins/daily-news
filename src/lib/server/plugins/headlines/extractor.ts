@@ -3,8 +3,8 @@
  * Uses LLM to extract headlines from Markdown content
  */
 
-import { getOpenRouterClient } from '$lib/server/services/openrouter';
-import type { HeadlineItem, HeadlinesExtractionResult } from '$lib/server/services/openrouter/types';
+import { getLlmClient } from '$lib/server/services/llm';
+import type { HeadlineItem, HeadlinesExtractionResult } from '$lib/server/services/llm/types';
 import { sanitizeExtractedHeadlines } from './filters';
 
 function timestamp(): string {
@@ -82,10 +82,10 @@ It's better to return fewer valid items than to include generic links.
  * Extract headlines from Markdown content using LLM
  */
 export async function extractHeadlines(markdown: string): Promise<HeadlineItem[]> {
-    const client = getOpenRouterClient();
+    const client = getLlmClient();
 
     if (!client.isConfigured()) {
-        warn('OpenRouter not configured, skipping headline extraction');
+        warn('LLM provider not configured, skipping headline extraction');
         return [];
     }
 
