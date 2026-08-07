@@ -165,6 +165,11 @@ AI_MAX_RETRIES=2
 AI_RETRY_DELAY_MS=1500
 AI_TIMEOUT_MS=30000
 
+# optional: output cap. Always sent, because providers disagree on the default —
+# Cloudflare Workers AI caps replies at 256 tokens when it is omitted, which
+# truncates the headlines JSON and yields no headlines at all.
+AI_MAX_TOKENS=4096
+
 # optional: extra provider-specific headers, as a JSON object
 AI_EXTRA_HEADERS={"HTTP-Referer":"https://daily-news.local","X-Title":"Daily News Aggregator"}
 

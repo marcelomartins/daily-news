@@ -16,6 +16,11 @@ const DEFAULT_MODEL = 'qwen/qwen3-next-80b-a3b-instruct:free';
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 1500;
 const DEFAULT_TIMEOUT_MS = 30000;
+// Providers disagree wildly on what "no max_tokens" means: OpenRouter falls back
+// to the model's own limit, while Cloudflare Workers AI caps the reply at 256
+// tokens — short enough to truncate the headlines JSON and fail the parse. Send
+// an explicit value so behaviour does not depend on the provider.
+const DEFAULT_MAX_TOKENS = 4096;
 const CHAT_COMPLETIONS_PATH = '/chat/completions';
 
 class LlmRequestError extends Error {
@@ -124,6 +129,7 @@ export class LlmClient {
     private fallbackModels: string[];
     private requestTimeoutMs: number;
     private extraHeaders: Record<string, string>;
+    private defaultMaxTokens: number;
 
     constructor(apiKey?: string, model?: string) {
         const dedicatedHeadlinesKey =
@@ -149,6 +155,7 @@ export class LlmClient {
             DEFAULT_TIMEOUT_MS
         );
         this.extraHeaders = parseExtraHeaders(env.AI_EXTRA_HEADERS);
+        this.defaultMaxTokens = parsePositiveInt(env.AI_MAX_TOKENS, DEFAULT_MAX_TOKENS);
 
         if (dedicatedHeadlinesKey) {
             console.log('[LLM] Using dedicated headlines API key for requests');
@@ -264,7 +271,7 @@ export class LlmClient {
             model,
             messages,
             temperature: options?.temperature ?? 0.7,
-            max_tokens: options?.maxTokens
+            max_tokens: options?.maxTokens ?? this.defaultMaxTokens
         };
 
         const abortController = new AbortController();
