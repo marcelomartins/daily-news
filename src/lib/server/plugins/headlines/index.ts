@@ -12,6 +12,7 @@ import { mergeHeadlines, enrichHeadlineArticles, finalizeHeadlines } from './pro
 import { getLlmClient } from '$lib/server/services/llm';
 import { sanitizeCategoryIdentifier, sanitizeUserIdentifier } from '$lib/server/utils/identifiers.js';
 import { parseFeedSourceLine } from '$lib/server/utils/feed-flags.js';
+import { resolveSchedule } from '$lib/server/utils/schedule.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DEFAULT_INTERVAL_MINUTES = 120;
@@ -42,19 +43,6 @@ function errorLog(message: string, error?: unknown): void {
         return;
     }
     console.error(`[${timestamp()}] [PLUGIN-headline] ${message}`);
-}
-
-function getCronExpression(intervalMinutes: number): string {
-    if (intervalMinutes < 1) {
-        return '*/1 * * * *';
-    }
-
-    if (intervalMinutes % 60 === 0) {
-        const hours = intervalMinutes / 60;
-        return `0 */${hours} * * *`;
-    }
-
-    return `*/${intervalMinutes} * * * *`;
 }
 
 interface FeedWithHeadlines {
@@ -300,20 +288,21 @@ export function init(): void {
     log('║          HEADLINES PLUGIN - INICIALIZANDO                 ║');
     log('╚═══════════════════════════════════════════════════════════╝');
 
-    const parsedInterval = parseInt(
-        process.env.HEADLINES_INTERVAL_MINUTES || String(DEFAULT_INTERVAL_MINUTES),
-        10
-    );
-    const intervalMinutes = Number.isNaN(parsedInterval)
-        ? DEFAULT_INTERVAL_MINUTES
-        : Math.max(1, parsedInterval);
+    const { expression: cronExpression, description } = resolveSchedule({
+        label: 'HEADLINES',
+        cronExpression: process.env.HEADLINES_CRON,
+        intervalMinutes: process.env.HEADLINES_INTERVAL_MINUTES,
+        defaultIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
+        log,
+        warn
+    });
 
     const startupDelayMs = Number.isNaN(STARTUP_DELAY_MS)
         ? DEFAULT_STARTUP_DELAY_MS
         : Math.max(0, STARTUP_DELAY_MS);
 
     log('Configuracao:');
-    log(`  - Intervalo: ${intervalMinutes} minuto(s)`);
+    log(`  - Agendamento: ${description}`);
     log(`  - Delay inicial: ${Math.floor(startupDelayMs / 1000)} segundo(s)`);
     log(`  - Modelo: ${getLlmClient().getModel()}`);
 
@@ -327,9 +316,6 @@ export function init(): void {
     }, startupDelayMs);
 
     // Schedule periodic runs
-    const cronExpression = getCronExpression(intervalMinutes);
-    log(`Cron programado: ${cronExpression}`);
-
     cron.schedule(cronExpression, () => {
         log('Execucao agendada iniciando...');
         runHeadlineExtraction().catch(err => {

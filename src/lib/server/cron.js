@@ -8,6 +8,7 @@ import { writeJsonAtomic } from '$lib/server/utils/atomic-file.js';
 import { withKeyLock } from '$lib/server/utils/locks.js';
 import { sanitizeCategoryIdentifier, sanitizeUserIdentifier } from '$lib/server/utils/identifiers.js';
 import { parseFeedSourceLine } from '$lib/server/utils/feed-flags.js';
+import { resolveSchedule } from '$lib/server/utils/schedule.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PAGES_DIR = path.join(DATA_DIR, 'pages');
@@ -20,6 +21,7 @@ const DEFAULT_FEED_MAX_RETRIES = 2;
 const DEFAULT_FEED_RETRY_BASE_DELAY_MS = 1000;
 const DEFAULT_FEED_FETCH_CONCURRENCY = 6;
 const DEFAULT_PLUGIN_CACHE_TTL_MINUTES = 240;
+const DEFAULT_RSS_INTERVAL_MINUTES = 180;
 
 /**
  * @param {string | undefined} rawValue
@@ -160,6 +162,14 @@ async function isPluginDataFresh(pluginPath, pluginData) {
 }
 
 let isCronRunInProgress = false;
+
+/**
+ * @returns {boolean}
+ */
+function isStartupFetchEnabled() {
+    const rawValue = (process.env.RSS_FETCH_ON_STARTUP || 'true').toLowerCase();
+    return rawValue !== 'false' && rawValue !== '0' && rawValue !== 'off';
+}
 
 /**
  * Converte data em português para inglês para parsing correto
@@ -448,18 +458,39 @@ export function startCronJobs() {
         });
     };
 
-    // Executa imediatamente na subida da aplicação
-    console.log(`[${now()}] [RSS] Executando busca inicial de notícias...`);
-    triggerFetch('startup');
+    if (process.env.RSS_UPDATE_INTERVAL) {
+        console.warn(
+            `[${now()}] [RSS] RSS_UPDATE_INTERVAL nao e mais lida (nunca chegou a ser). ` +
+            `Use RSS_INTERVAL_MINUTES ou RSS_CRON.`
+        );
+    }
 
-    // Executa a cada 3 horas como backup.
-    // Quando habilitado, o File System Watcher cuida das mudanças em tempo real.
-    cron.schedule('0 */3 * * *', () => {
-        console.log(`[${now()}] [RSS] Executando sincronização de backup a cada 3 horas`);
+    // Executa imediatamente na subida da aplicação (desativavel: em restarts
+    // frequentes isso refaz a coleta inteira sem necessidade)
+    if (isStartupFetchEnabled()) {
+        console.log(`[${now()}] [RSS] Executando busca inicial de notícias...`);
+        triggerFetch('startup');
+    } else {
+        console.log(`[${now()}] [RSS] Busca inicial desabilitada por RSS_FETCH_ON_STARTUP`);
+    }
+
+    // Sincronização periódica. Quando habilitado, o File System Watcher cuida
+    // das mudanças nos arquivos .feeds em tempo real.
+    const { expression, description } = resolveSchedule({
+        label: 'RSS',
+        cronExpression: process.env.RSS_CRON,
+        intervalMinutes: process.env.RSS_INTERVAL_MINUTES,
+        defaultIntervalMinutes: DEFAULT_RSS_INTERVAL_MINUTES,
+        log: message => console.log(`[${now()}] ${message}`),
+        warn: message => console.warn(`[${now()}] ${message}`)
+    });
+
+    cron.schedule(expression, () => {
+        console.log(`[${now()}] [RSS] Executando sincronização agendada`);
         triggerFetch('cron');
     });
 
-    console.log(`[${now()}] [RSS] Cron jobs iniciado (backup a cada 3 horas)!`);
+    console.log(`[${now()}] [RSS] Cron jobs iniciado: ${description}`);
 }
 
 /**

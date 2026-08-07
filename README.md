@@ -33,7 +33,7 @@ A blazing-fast news reader built with SvelteKit 2 + Svelte 5. It organizes multi
 - **💾 No Database Needed**: Stores articles in static JSON files for maximum simplicity and portability
 - **📱 Responsive Design**: Fully optimized UI for desktop, tablet, and mobile reading
 - **🌙 Dark/Light Theme**: Cookie-based persistence with SSR rendering (zero theme flash)
-- **⚡ Background Syncing**: Initial fetch on startup + automated background synchronization every 3 hours
+- **⚡ Background Syncing**: Initial fetch on startup + configurable background synchronization (every 3 hours by default)
 - **👀 Feed Watcher**: Automatically reprocesses inputs whenever `.feeds` configuration files are updated
 - **🎨 Clean UI**: A minimalistic interface inspired by modern premium news readers
 - **🐳 Docker Ecosystem**: Simplified, painless deployment via containers
@@ -173,7 +173,7 @@ AI_MAX_TOKENS=4096
 # optional: extra provider-specific headers, as a JSON object
 AI_EXTRA_HEADERS={"HTTP-Referer":"https://daily-news.local","X-Title":"Daily News Aggregator"}
 
-# plugin execution interval (e.g. 120 minutes)
+# how often the plugin runs — see "Scheduling Updates" below
 HEADLINES_INTERVAL_MINUTES=120
 
 # language the AI will translate full articles into (leave empty/omitted to keep original language)
@@ -190,7 +190,7 @@ AI_API_KEY=sk-or-v1-...
 AI_MODEL=openai/gpt-oss-20b
 ```
 
-**Cloudflare Workers AI**
+**Cloudflare Workers AI** — 💡 *see the free-tier recipe below*
 
 ```bash
 AI_BASE_URL=https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1
@@ -207,6 +207,28 @@ AI_MODEL=workers-ai/@cf/openai/gpt-oss-20b
 ```
 
 > ⚠️ **Model capability matters.** The plugin asks the model to return strict JSON. Small models (7B/8B class) frequently break that contract and produce zero headlines. Stick to a `gpt-oss`-class model or better, and make sure the model's context window comfortably fits the ~15k characters of page content the extractor sends.
+
+#### 💡 Running the AI for free on Cloudflare
+
+Cloudflare Workers AI has a free daily allocation measured in *neurons*, which is enough to run this plugin. The model you pick changes the cost by several times over, so this combination gets the most out of it:
+
+```yaml
+AI_BASE_URL: "https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1"
+AI_API_KEY: "YOUR_CLOUDFLARE_API_TOKEN"
+AI_MODEL: "@cf/qwen/qwen3-30b-a3b-fp8"
+AI_MAX_TOKENS: 8192
+AI_TIMEOUT_MS: 120000
+HEADLINES_INTERVAL_MINUTES: 480
+```
+
+Why these values:
+
+- **`@cf/qwen/qwen3-30b-a3b-fp8`** costs roughly **3x fewer neurons per run** than `@cf/openai/gpt-oss-20b` for the same extraction, with a 32k context window that comfortably fits what the extractor sends.
+- **`AI_MAX_TOKENS: 8192`** is not optional here. This is a *reasoning* model: it spends a large share of the output budget "thinking" before emitting the JSON. At the 4096 default the reasoning eats the budget, the JSON is cut mid-array, and you get a `SyntaxError: Expected ',' or ']' after array element` with zero headlines. `max_tokens` is a ceiling, not a target — raising it costs nothing extra when the model finishes earlier.
+- **`AI_TIMEOUT_MS: 120000`** because that reasoning is slow: a single extraction can take over 45 seconds. The default 30s would abort it, and a timeout counts as a retryable error, so the retry burns the allocation twice.
+- **`HEADLINES_INTERVAL_MINUTES: 480`** keeps the daily neuron usage low. See [Scheduling Updates](#scheduling-updates).
+
+If you would rather not use a reasoning model, `@cf/openai/gpt-oss-20b` works fine at the default `AI_MAX_TOKENS` and is noticeably faster — it just consumes the free allocation faster too.
 
 *Note (OpenRouter): if you receive a "add your own key to accumulate your rate limits" error, ensure you have added your provider key directly inside `https://openrouter.ai/settings/integrations` (BYOK configuration via the OpenRouter dashboard).*
 
@@ -225,6 +247,47 @@ The previous `OPENROUTER_*` variables are **deprecated but still honored** as a 
 | `OPENROUTER_TIMEOUT_MS` | `AI_TIMEOUT_MS` |
 
 When both are set, the `AI_*` variable wins.
+
+### Scheduling Updates
+
+Two independent jobs refresh your news, each configured the same way:
+
+| Job | What it does | Interval variable | Cron variable | Default |
+|---|---|---|---|---|
+| **RSS** | Fetches every standard feed | `RSS_INTERVAL_MINUTES` | `RSS_CRON` | every 3 hours |
+| **Headlines** | Runs the AI plugin on `[headline]` sources | `HEADLINES_INTERVAL_MINUTES` | `HEADLINES_CRON` | every 2 hours |
+
+**Simple interval** — the common case:
+
+```yaml
+RSS_INTERVAL_MINUTES: 60          # hourly
+HEADLINES_INTERVAL_MINUTES: 480   # every 8 hours
+```
+
+**Specific times** — when an interval is not expressive enough, use a standard 5-field cron expression, which always takes precedence:
+
+```yaml
+RSS_CRON: "*/30 6-23 * * *"       # every 30 min, only between 06:00 and 23:59
+HEADLINES_CRON: "0 7,13,19 * * *" # 07:00, 13:00 and 19:00 only
+```
+
+Useful for AI cost control: run the plugin only when you actually read the news, instead of around the clock.
+
+#### Startup fetch
+
+By default the RSS job also runs once when the app starts, so a fresh container has news immediately. Disable it if you restart often and would rather wait for the schedule:
+
+```yaml
+RSS_FETCH_ON_STARTUP: false
+```
+
+The headlines plugin always waits `HEADLINES_STARTUP_DELAY_MS` (10s by default) before its first run, letting the RSS fetch finish first.
+
+> **Note on intervals.** Cron has no way to express "every N minutes" when N is above 59 and not a whole number of hours. Values like `90` or `100` are rounded to the nearest hour and the app logs exactly what it will do, for example:
+> `[HEADLINES] Nao existe expressao cron para 90 min; sera executado a cada 120 min. Use HEADLINES_CRON para controle exato.`
+> Use the `*_CRON` variable when you need precision. On startup each job logs its effective schedule, so you can always confirm what is running.
+
+> `RSS_UPDATE_INTERVAL` appeared in older examples but was never read by the application. If it is still set, the app logs a warning pointing to the variables above.
 
 ### Directory Structure
 
