@@ -3,6 +3,13 @@ import cron from 'node-cron';
 const MINUTES_PER_HOUR = 60;
 const MINUTES_PER_DAY = 1440;
 
+// Amostra usada para medir a cadencia. Precisa cobrir um dia inteiro de uma
+// expressao com varios horarios fixos (ex.: "0 7,13,19 * * *"), senao o maior
+// intervalo do dia - justamente o que importa para o TTL - passa despercebido.
+const CADENCE_SAMPLE_RUNS = 10;
+
+export const DEFAULT_HEADLINES_INTERVAL_MINUTES = 120;
+
 /**
  * Converte "a cada N minutos" na expressao cron mais proxima.
  *
@@ -39,12 +46,12 @@ export function intervalMinutesToCron(intervalMinutes) {
  * minutos, que na pratica roda de hora em hora) aparece em vez de passar batido.
  *
  * @param {string} expression
- * @returns {{ uniform: boolean, intervalMinutes: number | null, deltas: number[] } | null}
+ * @returns {{ uniform: boolean, intervalMinutes: number | null, maxIntervalMinutes: number, deltas: number[] } | null}
  */
 export function measureCadence(expression) {
 	try {
 		const task = cron.createTask(expression, () => {});
-		const runs = task.getNextRuns(5).map(run => new Date(run).getTime());
+		const runs = task.getNextRuns(CADENCE_SAMPLE_RUNS).map(run => new Date(run).getTime());
 		task.destroy();
 
 		if (runs.length < 2) {
@@ -54,7 +61,12 @@ export function measureCadence(expression) {
 		const deltas = runs.slice(1).map((run, index) => Math.round((run - runs[index]) / 60000));
 		const uniform = deltas.every(delta => delta === deltas[0]);
 
-		return { uniform, intervalMinutes: uniform ? deltas[0] : null, deltas };
+		return {
+			uniform,
+			intervalMinutes: uniform ? deltas[0] : null,
+			maxIntervalMinutes: Math.max(...deltas),
+			deltas
+		};
 	} catch {
 		return null;
 	}
@@ -74,7 +86,7 @@ export function measureCadence(expression) {
  * @param {number} options.defaultIntervalMinutes
  * @param {(message: string) => void} [options.log]
  * @param {(message: string) => void} [options.warn]
- * @returns {{ expression: string, description: string }}
+ * @returns {{ expression: string, description: string, maxIntervalMinutes: number | null }}
  */
 export function resolveSchedule({
 	label,
@@ -92,7 +104,11 @@ export function resolveSchedule({
 			const description = cadence?.uniform
 				? `${rawCron} (a cada ${cadence.intervalMinutes} min)`
 				: rawCron;
-			return { expression: rawCron, description };
+			return {
+				expression: rawCron,
+				description,
+				maxIntervalMinutes: cadence?.maxIntervalMinutes ?? null
+			};
 		}
 
 		warn(`[${label}] Expressao cron invalida: "${rawCron}". Voltando para o intervalo em minutos.`);
@@ -111,7 +127,7 @@ export function resolveSchedule({
 
 	if (cadence && !cadence.uniform) {
 		warn(
-			`[${label}] ${requestedMinutes} min gera intervalos irregulares (${cadence.deltas.join(', ')} min). ` +
+			`[${label}] ${requestedMinutes} min gera intervalos irregulares (${cadence.deltas.slice(0, 4).join(', ')} min). ` +
 				`Use ${label}_CRON para controle exato.`
 		);
 	} else if (cadence && cadence.intervalMinutes !== requestedMinutes) {
@@ -122,5 +138,32 @@ export function resolveSchedule({
 	}
 
 	const effectiveMinutes = cadence?.intervalMinutes ?? requestedMinutes;
-	return { expression, description: `${expression} (a cada ${effectiveMinutes} min)` };
+	return {
+		expression,
+		description: `${expression} (a cada ${effectiveMinutes} min)`,
+		maxIntervalMinutes: cadence?.maxIntervalMinutes ?? requestedMinutes
+	};
+}
+
+/**
+ * Agendamento do plugin de headlines.
+ *
+ * Vive aqui, e nao dentro do plugin, porque o job de RSS tambem precisa saber
+ * de quanto em quanto tempo o plugin roda para dimensionar o TTL do cache -
+ * e importar o plugin so para isso arrastaria o Puppeteer junto.
+ *
+ * @param {object} [options]
+ * @param {(message: string) => void} [options.log]
+ * @param {(message: string) => void} [options.warn]
+ * @returns {{ expression: string, description: string, maxIntervalMinutes: number | null }}
+ */
+export function resolveHeadlinesSchedule({ log, warn } = {}) {
+	return resolveSchedule({
+		label: 'HEADLINES',
+		cronExpression: process.env.HEADLINES_CRON,
+		intervalMinutes: process.env.HEADLINES_INTERVAL_MINUTES,
+		defaultIntervalMinutes: DEFAULT_HEADLINES_INTERVAL_MINUTES,
+		log,
+		warn
+	});
 }

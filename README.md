@@ -165,7 +165,8 @@ AI_MAX_RETRIES=2
 AI_RETRY_DELAY_MS=1500
 AI_TIMEOUT_MS=30000
 
-# optional: output cap. Always sent, because providers disagree on the default —
+# optional: output cap for every call — headline extraction and full-article
+# translation alike. Always sent, because providers disagree on the default:
 # Cloudflare Workers AI caps replies at 256 tokens when it is omitted, which
 # truncates the headlines JSON and yields no headlines at all.
 AI_MAX_TOKENS=4096
@@ -224,7 +225,7 @@ HEADLINES_INTERVAL_MINUTES: 480
 Why these values:
 
 - **`@cf/qwen/qwen3-30b-a3b-fp8`** costs roughly **3x fewer neurons per run** than `@cf/openai/gpt-oss-20b` for the same extraction, with a 32k context window that comfortably fits what the extractor sends.
-- **`AI_MAX_TOKENS: 8192`** is not optional here. This is a *reasoning* model: it spends a large share of the output budget "thinking" before emitting the JSON. At the 4096 default the reasoning eats the budget, the JSON is cut mid-array, and you get a `SyntaxError: Expected ',' or ']' after array element` with zero headlines. `max_tokens` is a ceiling, not a target — raising it costs nothing extra when the model finishes earlier.
+- **`AI_MAX_TOKENS: 8192`** is not optional here. This is a *reasoning* model: it spends a large share of the output budget "thinking" before emitting the answer. At the 4096 default the reasoning eats the budget, the headlines JSON is cut mid-array, and you get a `SyntaxError: Expected ',' or ']' after array element` with zero headlines. The same budget caps the full-article translation, where a truncated reply means the article arrives with no translated body at all. `max_tokens` is a ceiling, not a target — raising it costs nothing extra when the model finishes earlier.
 - **`AI_TIMEOUT_MS: 120000`** because that reasoning is slow: a single extraction can take over 45 seconds. The default 30s would abort it, and a timeout counts as a retryable error, so the retry burns the allocation twice.
 - **`HEADLINES_INTERVAL_MINUTES: 480`** keeps the daily neuron usage low. See [Scheduling Updates](#scheduling-updates).
 
@@ -273,6 +274,8 @@ HEADLINES_CRON: "0 7,13,19 * * *" # 07:00, 13:00 and 19:00 only
 
 Useful for AI cost control: run the plugin only when you actually read the news, instead of around the clock.
 
+> ⚠️ **Use five fields.** `node-cron` also accepts a six-field form where the *first* field is seconds. `"0 */2 6-23 * * *"` therefore means *every 2 minutes*, not every 2 hours — the six-field version of "every 2 hours from 06:00 to 22:00" is `"0 6-23/2 * * *"`. On startup each job logs the cadence it measured (`Cron jobs iniciado: 0 6-23/2 * * * (a cada 120 min)`); check that line if a schedule does not behave as expected.
+
 #### Startup fetch
 
 By default the RSS job also runs once when the app starts, so a fresh container has news immediately. Disable it if you restart often and would rather wait for the schedule:
@@ -282,6 +285,18 @@ RSS_FETCH_ON_STARTUP: false
 ```
 
 The headlines plugin always waits `HEADLINES_STARTUP_DELAY_MS` (10s by default) before its first run, letting the RSS fetch finish first.
+
+#### Headlines cache lifetime
+
+The RSS job rebuilds each category file from scratch and merges in the AI headlines from their cache (`user-Category-headlines.json`) — including the translated article bodies. That cache is only rewritten when the plugin runs, so it carries a TTL: past it, the RSS job treats the data as dead and drops it, and the AI items disappear from the page until the next plugin run.
+
+The TTL is derived from your headlines schedule — twice the longest gap between runs, never below 4 hours — so `HEADLINES_CRON` and `HEADLINES_INTERVAL_MINUTES` need no companion setting. The effective value is logged at startup:
+
+```text
+[RSS] TTL do cache de plugins: 1440 min
+```
+
+`PLUGIN_CACHE_TTL_MINUTES` overrides it, but setting it below your headlines interval makes the AI news blink out between runs — the app warns when it detects that.
 
 > **Note on intervals.** Cron has no way to express "every N minutes" when N is above 59 and not a whole number of hours. Values like `90` or `100` are rounded to the nearest hour and the app logs exactly what it will do, for example:
 > `[HEADLINES] Nao existe expressao cron para 90 min; sera executado a cada 120 min. Use HEADLINES_CRON para controle exato.`

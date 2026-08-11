@@ -417,6 +417,13 @@ function normalizeTranslatedArticleText(text: string): string {
         .replace(/\r\n/g, '\n')
         .trim();
 
+    // Um <think> sem fechamento significa que a resposta foi cortada no meio do
+    // raciocinio: o regex acima nao remove nada e o raciocinio do modelo acabaria
+    // publicado como se fosse o corpo da noticia. Melhor nao ter texto nenhum.
+    if (/<think>/i.test(cleaned)) {
+        return '';
+    }
+
     const rawParagraphs = cleaned
         .split(/\n{2,}/)
         .map(paragraph =>
@@ -519,12 +526,16 @@ ${articleMarkdown}
 
 ${userTask}`;
 
+    // Sem maxTokens explicito: quem manda e o AI_MAX_TOKENS do cliente. Um teto
+    // fixo aqui ignorava a configuracao e estourava em modelos de reasoning, que
+    // gastam boa parte do orcamento "pensando" antes de emitir o texto - o corpo
+    // do artigo voltava truncado ou vazio.
     const response = await client.chat(
         [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
         ],
-        { temperature: 0.2, maxTokens: 3200 }
+        { temperature: 0.2 }
     );
 
     return normalizeTranslatedArticleText(response);

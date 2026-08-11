@@ -12,10 +12,9 @@ import { mergeHeadlines, enrichHeadlineArticles, finalizeHeadlines } from './pro
 import { getLlmClient } from '$lib/server/services/llm';
 import { sanitizeCategoryIdentifier, sanitizeUserIdentifier } from '$lib/server/utils/identifiers.js';
 import { parseFeedSourceLine } from '$lib/server/utils/feed-flags.js';
-import { resolveSchedule } from '$lib/server/utils/schedule.js';
+import { resolveHeadlinesSchedule } from '$lib/server/utils/schedule.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
-const DEFAULT_INTERVAL_MINUTES = 120;
 const DEFAULT_STARTUP_DELAY_MS = 10000;
 const STARTUP_DELAY_MS = Number.parseInt(
     process.env.HEADLINES_STARTUP_DELAY_MS || String(DEFAULT_STARTUP_DELAY_MS),
@@ -288,14 +287,7 @@ export function init(): void {
     log('║          HEADLINES PLUGIN - INICIALIZANDO                 ║');
     log('╚═══════════════════════════════════════════════════════════╝');
 
-    const { expression: cronExpression, description } = resolveSchedule({
-        label: 'HEADLINES',
-        cronExpression: process.env.HEADLINES_CRON,
-        intervalMinutes: process.env.HEADLINES_INTERVAL_MINUTES,
-        defaultIntervalMinutes: DEFAULT_INTERVAL_MINUTES,
-        log,
-        warn
-    });
+    const { expression: cronExpression, description } = resolveHeadlinesSchedule({ log, warn });
 
     const startupDelayMs = Number.isNaN(STARTUP_DELAY_MS)
         ? DEFAULT_STARTUP_DELAY_MS

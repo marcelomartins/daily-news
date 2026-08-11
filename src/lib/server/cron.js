@@ -8,7 +8,7 @@ import { writeJsonAtomic } from '$lib/server/utils/atomic-file.js';
 import { withKeyLock } from '$lib/server/utils/locks.js';
 import { sanitizeCategoryIdentifier, sanitizeUserIdentifier } from '$lib/server/utils/identifiers.js';
 import { parseFeedSourceLine } from '$lib/server/utils/feed-flags.js';
-import { resolveSchedule } from '$lib/server/utils/schedule.js';
+import { resolveHeadlinesSchedule, resolveSchedule } from '$lib/server/utils/schedule.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PAGES_DIR = path.join(DATA_DIR, 'pages');
@@ -20,8 +20,12 @@ const DEFAULT_FEED_TIMEOUT_MS = 15000;
 const DEFAULT_FEED_MAX_RETRIES = 2;
 const DEFAULT_FEED_RETRY_BASE_DELAY_MS = 1000;
 const DEFAULT_FEED_FETCH_CONCURRENCY = 6;
-const DEFAULT_PLUGIN_CACHE_TTL_MINUTES = 240;
+const MIN_PLUGIN_CACHE_TTL_MINUTES = 240;
 const DEFAULT_RSS_INTERVAL_MINUTES = 180;
+// Quantas execucoes do plugin o cache sobrevive antes de ser considerado morto.
+// 2 tolera uma rodada perdida (falha de rede, provedor fora do ar) sem apagar
+// as manchetes ja traduzidas da pagina.
+const PLUGIN_CACHE_TTL_RUNS = 2;
 
 /**
  * @param {string | undefined} rawValue
@@ -40,8 +44,45 @@ const FEED_TIMEOUT_MS = parsePositiveInt(process.env.RSS_FETCH_TIMEOUT_MS, DEFAU
 const FEED_MAX_RETRIES = parsePositiveInt(process.env.RSS_FETCH_MAX_RETRIES, DEFAULT_FEED_MAX_RETRIES);
 const FEED_RETRY_BASE_DELAY_MS = parsePositiveInt(process.env.RSS_FETCH_RETRY_DELAY_MS, DEFAULT_FEED_RETRY_BASE_DELAY_MS);
 const FEED_FETCH_CONCURRENCY = parsePositiveInt(process.env.RSS_FETCH_CONCURRENCY, DEFAULT_FEED_FETCH_CONCURRENCY);
-const PLUGIN_CACHE_TTL_MS =
-    parsePositiveInt(process.env.PLUGIN_CACHE_TTL_MINUTES, DEFAULT_PLUGIN_CACHE_TTL_MINUTES) * 60 * 1000;
+/**
+ * O cache do plugin de headlines so e reescrito quando o plugin roda, e este
+ * job reconstroi as paginas do zero: quando o cache expira, as manchetes (e o
+ * texto traduzido junto delas) somem da pagina ate a proxima rodada do plugin.
+ *
+ * Por isso o TTL nao pode ser um numero fixo - ele tem que cobrir o maior
+ * intervalo entre execucoes do plugin. Um `HEADLINES_CRON` de "0 7,13,19 * * *"
+ * tem um vao de 12h a noite; com o antigo padrao de 240 min as traducoes
+ * desapareciam por boa parte do dia sem nenhum erro no log.
+ *
+ * @returns {number}
+ */
+function resolvePluginCacheTtlMinutes() {
+    // Nao logamos aqui: o proprio plugin ja reporta o agendamento na sua init.
+    const noop = () => { };
+    const { maxIntervalMinutes } = resolveHeadlinesSchedule({ log: noop, warn: noop });
+    const derived = maxIntervalMinutes
+        ? maxIntervalMinutes * PLUGIN_CACHE_TTL_RUNS
+        : MIN_PLUGIN_CACHE_TTL_MINUTES;
+    const automatic = Math.max(MIN_PLUGIN_CACHE_TTL_MINUTES, derived);
+
+    const configured = Number.parseInt(process.env.PLUGIN_CACHE_TTL_MINUTES || '', 10);
+    if (!Number.isFinite(configured) || configured <= 0) {
+        return automatic;
+    }
+
+    if (maxIntervalMinutes && configured < maxIntervalMinutes) {
+        console.warn(
+            `[RSS] PLUGIN_CACHE_TTL_MINUTES=${configured} e menor que o intervalo entre execucoes ` +
+            `do plugin de headlines (${maxIntervalMinutes} min): as manchetes e as traducoes vao ` +
+            `sumir da pagina entre uma rodada e outra. Use no minimo ${automatic}.`
+        );
+    }
+
+    return configured;
+}
+
+const PLUGIN_CACHE_TTL_MINUTES = resolvePluginCacheTtlMinutes();
+const PLUGIN_CACHE_TTL_MS = PLUGIN_CACHE_TTL_MINUTES * 60 * 1000;
 
 /**
  * @param {number} ms
@@ -491,6 +532,7 @@ export function startCronJobs() {
     });
 
     console.log(`[${now()}] [RSS] Cron jobs iniciado: ${description}`);
+    console.log(`[${now()}] [RSS] TTL do cache de plugins: ${PLUGIN_CACHE_TTL_MINUTES} min`);
 }
 
 /**
